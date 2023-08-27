@@ -72,6 +72,7 @@ class PorcupinePipeline:
     _devices = {}
     _conversation_id = None
     _followup = False
+    _heard_text = None
 
     ##########################################
     def __init__(self, args: argparse.Namespace):
@@ -258,6 +259,7 @@ class PorcupinePipeline:
         """Return ID of audio pipeline"""
 
         self._pipeline_id: Optional[str] = None
+        self._pipeline_2_id: Optional[str] = None
         if self._state.args.pipeline:
             _LOGGER.info(
                 "Using Home Assistant audio pipeline %s", self._state.args.pipeline
@@ -284,6 +286,33 @@ class PorcupinePipeline:
             if not self._pipeline_id:
                 raise ValueError(
                     f"No pipeline named {self._state.args.pipeline} in {pipelines}"
+                )
+        if self._state.args.pipeline_2:
+            _LOGGER.info(
+                "Using Home Assistant audio pipeline %s", self._state.args.pipeline_2
+            )
+
+            # Get list of available pipelines and resolve name
+            msg = await self._send_ws(
+                {
+                    TYPE: "assist_pipeline/pipeline/list",
+                }
+            )
+            _LOGGER.debug(msg)
+            if RESULT not in msg:
+                _LOGGER.error("FAiled to get audio pipeline from HA")
+                _LOGGER.error(msg)
+                return
+
+            pipelines = msg[RESULT]["pipelines"]
+            for pipeline in pipelines:
+                if pipeline[NAME] == self._state.args.pipeline_2:
+                    self._pipeline_2_id = pipeline.get(ID)
+                    break
+
+            if not self._pipeline_2_id:
+                raise ValueError(
+                    f"No pipeline named {self._state.args.pipeline_2} in {pipelines}"
                 )
 
     ##########################################
@@ -392,7 +421,9 @@ class PorcupinePipeline:
                     # HA finished processing speech to text with result
                     speech = event_data["stt_output"].get("text")
                     _LOGGER.info("Recognized speech: %s", speech)
-
+                    self._heard_text = speech
+                    if self._state.args.pipeline_2:
+                        await self.pipeline_2()
                 elif event_type == "tts-end":
                     # URL of text to speech audio response (relative to server)
                     tts_url = self._ha_url
@@ -499,7 +530,38 @@ class PorcupinePipeline:
         )
         audio.wait_done()
 
+async def pipeline_2(self) -> None:
+        """send text to second pipeline and resceive audio response"""
+            
+        if not self._pipeline_2_id:
+            _LOGGER.error("No second pipeline")
+            return
 
+        _LOGGER.info("Sending text to second pipeline")
+        pipeline_args = {
+            TYPE: "assist_pipeline/run",
+            ID: self._message_id,
+            "start_stage": "stt",
+            "end_stage": "tts",
+            "input": {
+                "sample_rate": 16000,
+            },
+            "text": self._heard_text,
+        }
+        pipeline_args["pipeline"] = self._pipeline_2_id
+
+        # Send audio pipeline args to HA
+        msg = await self._send_ws(pipeline_args)
+        if not msg.get("success"):
+            _LOGGER.error(
+                msg.get(ERROR, {}).get(MESSAGE, "Pipeline failed to start")
+            )
+            return
+
+        _LOGGER.info(
+            "Recieving text from voice pipeline and sending to second pipeline %s", self._pipeline_2_id
+        )
+        return
 ##########################################
 def get_porcupine(state: State) -> Porcupine:
     """Listen for wake word and send audio to Home-Assistant"""
