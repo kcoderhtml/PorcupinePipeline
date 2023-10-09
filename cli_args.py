@@ -23,9 +23,9 @@ def get_cli_args() -> argparse.Namespace:
         help="Name of Home-Assistant voice assistant pipeline to use (default: preferred)",
     )
     parser.add_argument(
-        "--pipeline_2",
-        default=os.environ.get("PIPELINE_2"),
-        help="Name of secondary Home-Assistant voice assistant pipeline to use (default: preferred)",
+        "--remote-speaker",
+        default=os.environ.get("REMOTE_SPEAKER"),
+        help="IP address of remote speaker to use",
     )
     parser.add_argument(
         "--follow-up",

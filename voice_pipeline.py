@@ -287,33 +287,6 @@ class PorcupinePipeline:
                 raise ValueError(
                     f"No pipeline named {self._state.args.pipeline} in {pipelines}"
                 )
-        # if self._state.args.pipeline_2:
-        #     _LOGGER.info(
-        #         "Using Home Assistant audio pipeline %s", self._state.args.pipeline_2
-        #     )
-
-        #     # Get list of available pipelines and resolve name
-        #     msg = await self._send_ws(
-        #         {
-        #             TYPE: "assist_pipeline/pipeline/list",
-        #         }
-        #     )
-        #     _LOGGER.debug(msg)
-        #     if RESULT not in msg:
-        #         _LOGGER.error("FAiled to get audio pipeline from HA")
-        #         _LOGGER.error(msg)
-        #         return
-
-        #     pipelines = msg[RESULT]["pipelines"]
-        #     for pipeline in pipelines:
-        #         if pipeline[NAME] == self._state.args.pipeline_2:
-        #             self._pipeline_2_id = pipeline.get(ID)
-        #             break
-
-        #     if not self._pipeline_2_id:
-        #         raise ValueError(
-        #             f"No pipeline named {self._state.args.pipeline_2} in {pipelines}"
-                # )
 
     ##########################################
     async def _process_loop(self) -> None:
@@ -507,14 +480,36 @@ class PorcupinePipeline:
 
     ##########################################
     async def _play_response(self, url: str) -> None:
-        """Play response wav file from HA"""
-        requests.get("https://phoenix.taila2127.ts.net:8124/api/webhook/spotify-v-down-CKtdxXTuzirqQ_TdFccC1D_o")
-        time.sleep(1)
-        os.system("mpc -h 192.168.10.71 clear && mpc -h 192.168.10.71 add \"" + url + "\" && mpc -h 192.168.10.71 play")
-        # wait for mpd to finish playing
-        while os.system("mpc -h 192.168.10.71 | grep playing") == 0:
+        if args.remote_speaker:
+            """Play response wav file from HA"""
+            requests.get("https://" + args.server + ":8124/api/webhook/spotify-v-down-CKtdxXTuzirqQ_TdFccC1D_o")
             time.sleep(1)
-        requests.get("https://phoenix.taila2127.ts.net:8124/api/webhook/spotify-v-up-CKtdxXTuzirqQ_TdFccC1D_o")
+            os.system("mpc -h " + args.remote_speaker +" clear && mpc -h " + args.remote_speaker + " add \"" + url + "\" && mpc -h " + args.remote_speaker + " play")
+            # wait for mpd to finish playing
+            while os.system("mpc -h 192.168.10.71 | grep playing") == 0:
+                time.sleep(1)
+            requests.get("https://" + args.server + ":8124/api/webhook/spotify-v-up-CKtdxXTuzirqQ_TdFccC1D_o")
+        else:
+            try:
+                audio_data = None
+                request = requests.get(url, timeout=(10, 15))
+                if request.status_code < 300:
+                    audio_data = request.content
+
+            except (TimeoutError, ConnectionError) as err:
+                _LOGGER.error("Exception: %s", err)
+
+            if not audio_data:
+                _LOGGER.error("Failed to get audio file at %s", url)
+                return
+            audio = simpleaudio.play_buffer(
+                audio_data,
+                self._state.args.channels,
+                self._state.args.width,
+                self._state.args.rate,
+            )
+            audio.wait_done()
+
 
     async def pipeline_2(self) -> None:
         """send text to second pipeline and resceive audio response"""
